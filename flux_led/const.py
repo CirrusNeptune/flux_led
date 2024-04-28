@@ -78,6 +78,7 @@ MODE_WW: Final = "ww"
 MODE_CUSTOM: Final = "custom"
 MODE_MUSIC: Final = "music"
 MODE_PRESET: Final = "preset"
+MODE_CANDLE: Final = "candle"
 
 # Transitions
 TRANSITION_JUMP: Final = "jump"
@@ -131,6 +132,7 @@ CHANNEL_STATES = {
 
 EFFECT_RANDOM = "random"
 EFFECT_MUSIC = "music"
+EFFECT_STATIC = "Static"
 
 # Addressable limits
 SEGMENTS_MAX: Final = 2048

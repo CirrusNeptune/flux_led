@@ -23,6 +23,7 @@ from .const import (
     COLOR_MODE_RGBWW,
     EFFECT_MUSIC,
     EFFECT_RANDOM,
+    EFFECT_STATIC,
     NEVER_TIME,
     PRESET_MUSIC_MODE,
     PUSH_UPDATE_INTERVAL,
@@ -44,11 +45,12 @@ from .protocol import (
     ProtocolLEDENETAddressableA3,
     ProtocolLEDENETAddressableChristmas,
     ProtocolLEDENETOriginal,
+    ProtocolLEDENETDimmable4,
     RemoteConfig,
 )
 from .scanner import FluxLEDDiscovery
 from .timer import LedTimer
-from .utils import color_temp_to_white_levels, rgbw_brightness, rgbww_brightness
+from .utils import utils, color_temp_to_white_levels, rgbw_brightness, rgbww_brightness
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -211,40 +213,40 @@ class AIOWifiLedBulb(LEDENETDevice):
         self, state: bool, accept_any_power_state_response: bool
     ) -> bool:
         assert self._protocol is not None
-        power_state_future: "asyncio.Future[bool]" = self.loop.create_future()
+        #power_state_future: "asyncio.Future[bool]" = self.loop.create_future()
         state_future: "asyncio.Future[Union[LEDENETRawState, LEDENETOriginalRawState]]" = (
             self.loop.create_future()
         )
-        self._power_state_futures.append(power_state_future)
+        #self._power_state_futures.append(power_state_future)
         self._state_futures.append(state_future)
         await self._async_send_msg(self._protocol.construct_state_change(state))
         _LOGGER.debug("%s: Waiting for power state response", self.ipaddr)
         if await self._async_wait_state_change(
-            [state_future, power_state_future], state, POWER_STATE_TIMEOUT * (3 / 8)
+            [state_future], state, POWER_STATE_TIMEOUT
         ):
             return True
-        if power_state_future.done() and accept_any_power_state_response:
+        #if power_state_future.done() and accept_any_power_state_response:
             # The magic home app will accept any response as success
             # so after a few tries, we do as well.
-            return True
-        elif power_state_future.done() or state_future.done():
-            _LOGGER.debug(
-                "%s: Bulb power state change taking longer than expected to %s, sending state query",
-                self.ipaddr,
-                state,
-            )
-        else:
-            _LOGGER.debug(
-                "%s: Bulb failed to respond, sending state query", self.ipaddr
-            )
+        #    return True
+        #elif power_state_future.done() or state_future.done():
+        #    _LOGGER.debug(
+        #        "%s: Bulb power state change taking longer than expected to %s, sending state query",
+        #        self.ipaddr,
+        #        state,
+        #    )
+        #else:
+        _LOGGER.debug(
+            "%s: Bulb failed to respond, sending state query", self.ipaddr
+        )
         if state_future.done():
             state_future = self.loop.create_future()
             self._state_futures.append(state_future)
         pending: "List[asyncio.Future[Any]]" = [state_future]
-        if not power_state_future.done():
+        #if not power_state_future.done():
             # If the power state still hasn't responded
             # we want to stop waiting as soon as it does
-            pending.append(power_state_future)
+        #    pending.append(power_state_future)
         await self._async_send_state_query()
         if await self._async_wait_state_change(
             pending, state, POWER_STATE_TIMEOUT * (5 / 8)
@@ -268,6 +270,7 @@ class AIOWifiLedBulb(LEDENETDevice):
     async def _async_set_power_locked(self, state: bool) -> bool:
         async with self._power_state_lock:
             self._power_state_transition_complete_time = NEVER_TIME
+            self._set_transition_complete_time()
             return await self._async_set_power_state_with_retry(state)
 
     async def _async_set_power_state_with_retry(self, state: bool) -> bool:
@@ -424,6 +427,9 @@ class AIOWifiLedBulb(LEDENETDevice):
         self, effect: str, speed: int, brightness: int = 100
     ) -> None:
         """Set an effect."""
+        if effect == EFFECT_STATIC:
+            await self.async_set_levels(w=utils.percentToByte(brightness))
+            return
         if effect == EFFECT_RANDOM:
             await self.async_set_random()
             return
@@ -666,10 +672,20 @@ class AIOWifiLedBulb(LEDENETDevice):
     async def _async_connect(self) -> None:
         """Create connection."""
         async with asyncio_timeout(self.timeout):
-            _, self._aio_protocol = await self.loop.create_connection(
+            #import socket
+            #sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_STREAM, proto=socket.IPPROTO_TCP)
+            #sock.setsockopt(socket.SOL_TCP, socket.TCP_MAXSEG, 4096)
+            #sock.setsockopt(socket.SOL_TCP, socket.TCP_KEEPALIVE, 1)
+            #sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+            #sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+            #sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            #sock.setsockopt(socket.SOL_TCP, socket.TCP_NODELAY, 1)
+            #sock.connect((self.ipaddr, self.port))
+            transport, self._aio_protocol = await self.loop.create_connection(
                 lambda: AIOLEDENETProtocol(
                     self._async_data_recieved, self._async_connection_lost
                 ),
+                #sock=sock
                 self.ipaddr,
                 self.port,
             )
@@ -851,7 +867,7 @@ class AIOWifiLedBulb(LEDENETDevice):
         # determine the type of protocol based of first 2 bytes.
         for protocol_cls in self._protocol_probes():
             protocol = protocol_cls()
-            assert isinstance(protocol, (ProtocolLEDENET8Byte, ProtocolLEDENETOriginal))
+            assert isinstance(protocol, (ProtocolLEDENET8Byte, ProtocolLEDENETOriginal, ProtocolLEDENETDimmable4))
             self._protocol = protocol
             async with self._connect_lock:
                 await self._async_connect()

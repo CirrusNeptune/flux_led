@@ -24,6 +24,7 @@ from .const import (  # imported for back compat, remove once Home Assistant no 
     DEFAULT_WHITE_CHANNEL_TYPE,
     EFFECT_MUSIC,
     EFFECT_RANDOM,
+    EFFECT_STATIC,
     MAX_TEMP,
     MODE_COLOR,
     MODE_CUSTOM,
@@ -31,6 +32,7 @@ from .const import (  # imported for back compat, remove once Home Assistant no 
     MODE_PRESET,
     MODE_SWITCH,
     MODE_WW,
+    MODE_CANDLE,
     MODEL_NUMS_SWITCHS,
     NEVER_TIME,
     POWER_STATE_CHANGE_LATENCY,
@@ -65,6 +67,8 @@ from .pattern import (
     ASSESSABLE_MULTI_COLOR_ID_NAME,
     CHRISTMAS_ADDRESSABLE_EFFECT_ID_NAME,
     CHRISTMAS_ADDRESSABLE_EFFECT_NAME_ID,
+    DIMMABLE4_ADDRESSABLE_EFFECT_ID_NAME,
+    DIMMABLE4_ADDRESSABLE_EFFECT_NAME_ID,
     EFFECT_CUSTOM,
     EFFECT_CUSTOM_CODE,
     EFFECT_ID_NAME,
@@ -93,6 +97,7 @@ from .protocol import (
     PROTOCOL_LEDENET_ORIGINAL_CCT,
     PROTOCOL_LEDENET_ORIGINAL_RGBW,
     PROTOCOL_LEDENET_SOCKET,
+    PROTOCOL_LEDENET_DIMMABLE4,
     LEDENETAddressableDeviceConfiguration,
     LEDENETOriginalRawState,
     LEDENETRawState,
@@ -112,7 +117,9 @@ from .protocol import (
     ProtocolLEDENETOriginalCCT,
     ProtocolLEDENETOriginalRGBW,
     ProtocolLEDENETSocket,
+    ProtocolLEDENETDimmable4,
     RemoteConfig,
+    OUTER_MESSAGE_WRAPPER,
 )
 from .scanner import FluxLEDDiscovery, is_legacy_device
 from .timer import BuiltInTimer
@@ -125,7 +132,8 @@ class DeviceUnavailableException(RuntimeError):
     """Exception to indicate a device is not available."""
 
 
-PROTOCOL_PROBES: Tuple[Type[ProtocolLEDENET8Byte], Type[ProtocolLEDENETOriginal]] = (
+PROTOCOL_PROBES: Tuple[Type[ProtocolLEDENETDimmable4], Type[ProtocolLEDENET8Byte], Type[ProtocolLEDENETOriginal]] = (
+    ProtocolLEDENETDimmable4,
     ProtocolLEDENET8Byte,
     ProtocolLEDENETOriginal,
 )
@@ -150,6 +158,7 @@ PROTOCOL_TYPES = Union[
     ProtocolLEDENETCCTWrapped,
     ProtocolLEDENETSocket,
     ProtocolLEDENETAddressableChristmas,
+    ProtocolLEDENETDimmable4,
 ]
 
 ADDRESSABLE_PROTOCOLS = {
@@ -169,6 +178,7 @@ NEW_EFFECTS_PROTOCOLS = {
     PROTOCOL_LEDENET_ADDRESSABLE_A2,
     PROTOCOL_LEDENET_ADDRESSABLE_A3,
 }
+DIMMABLE4_EFFECTS_PROTOCOLS = {PROTOCOL_LEDENET_DIMMABLE4}
 SPEED_ADJUST_WILL_TURN_ON = {
     PROTOCOL_LEDENET_ADDRESSABLE_A1,
     PROTOCOL_LEDENET_ADDRESSABLE_A2,
@@ -190,6 +200,7 @@ PROTOCOL_NAME_TO_CLS = {
     PROTOCOL_LEDENET_CCT_WRAPPED: ProtocolLEDENETCCTWrapped,
     PROTOCOL_LEDENET_SOCKET: ProtocolLEDENETSocket,
     PROTOCOL_LEDENET_ADDRESSABLE_CHRISTMAS: ProtocolLEDENETAddressableChristmas,
+    PROTOCOL_LEDENET_DIMMABLE4: ProtocolLEDENETDimmable4,
 }
 
 
@@ -628,13 +639,15 @@ class LEDENETDevice:
             effects = ADDRESSABLE_EFFECT_ID_NAME.values()
         elif protocol in CHRISTMAS_EFFECTS_PROTOCOLS:
             effects = CHRISTMAS_ADDRESSABLE_EFFECT_ID_NAME.values()
+        elif protocol in DIMMABLE4_EFFECTS_PROTOCOLS:
+            effects = DIMMABLE4_ADDRESSABLE_EFFECT_ID_NAME.values()
         elif COLOR_MODES_RGB.intersection(self.color_modes):
             effects = EFFECT_LIST_DIMMABLE if self.dimmable_effects else EFFECT_LIST
         elif protocol == PROTOCOL_LEDENET_ORIGINAL_CCT:
             effects = EFFECT_LIST_LEGACY_CCT
         if self.microphone:
             return [*effects, EFFECT_RANDOM, EFFECT_MUSIC]
-        return [*effects, EFFECT_RANDOM]
+        return [*effects, EFFECT_STATIC]
 
     @property
     def effect(self) -> Optional[str]:
@@ -662,6 +675,10 @@ class LEDENETDevice:
         if protocol in CHRISTMAS_EFFECTS_PROTOCOLS:
             if pattern_code == 0x25:
                 return CHRISTMAS_ADDRESSABLE_EFFECT_ID_NAME.get(mode)
+            return None
+        if protocol in DIMMABLE4_EFFECTS_PROTOCOLS:
+            if pattern_code == 0x70:
+                return DIMMABLE4_ADDRESSABLE_EFFECT_ID_NAME.get(mode)
             return None
         if protocol == PROTOCOL_LEDENET_ORIGINAL_CCT:
             return EFFECT_ID_NAME_LEGACY_CCT.get(pattern_code)
@@ -695,6 +712,8 @@ class LEDENETDevice:
 
         if self._named_effect:
             if self.dimmable_effects:
+                if self.protocol == PROTOCOL_LEDENET_DIMMABLE4 and time.monotonic() > self._transition_complete_time:
+                    return int(raw_state.warm_white)
                 if (
                     self.protocol in NEW_EFFECTS_PROTOCOLS
                     and time.monotonic() > self._transition_complete_time
@@ -735,6 +754,18 @@ class LEDENETDevice:
             return (
                 MODE_PRESET
                 if self.protocol in CHRISTMAS_EFFECTS_PROTOCOLS
+                else MODE_CUSTOM
+            )
+        if pattern_code == 0x70:
+            return (
+                MODE_PRESET
+                if self.protocol in DIMMABLE4_EFFECTS_PROTOCOLS
+                else MODE_CUSTOM
+            )
+        if pattern_code == 0x5f:
+            return (
+                MODE_CANDLE
+                if self.protocol in DIMMABLE4_EFFECTS_PROTOCOLS
                 else MODE_CUSTOM
             )
         if pattern_code in (PRESET_MUSIC_MODE, PRESET_MUSIC_MODE_LEGACY):
@@ -1063,7 +1094,7 @@ class LEDENETDevice:
     @property
     def speed(self) -> int:
         assert self.raw_state is not None
-        if self.protocol in ADDRESSABLE_PROTOCOLS:
+        if self.protocol in ADDRESSABLE_PROTOCOLS or self.protocol == PROTOCOL_LEDENET_DIMMABLE4:
             return self.raw_state.speed
         if self.protocol in CHRISTMAS_EFFECTS_PROTOCOLS:
             return utils.delayToSpeed(self.raw_state.green)
@@ -1091,6 +1122,7 @@ class LEDENETDevice:
         channels: Dict[str, Optional[int]],
         persist: bool = True,
         brightness: Optional[int] = None,
+        fade_time: Optional[int] = None,
     ) -> Tuple[List[bytearray], Dict[str, int]]:
         """Generate the levels change request."""
         channel_map = self.model_data.channel_map
@@ -1139,7 +1171,7 @@ class LEDENETDevice:
 
         assert self._protocol is not None
         msgs = self._protocol.construct_levels_change(
-            persist, r_value, g_value, b_value, w_value, w2_value, write_mode
+            persist, r_value, g_value, b_value, w_value, w2_value, write_mode, fade_time
         )
         updates = {}
         multi_mode = self.multi_color_mode
@@ -1231,16 +1263,24 @@ class LEDENETDevice:
         cls = PROTOCOL_NAME_TO_CLS.get(protocol)
         if cls is None:
             raise ValueError(f"Invalid protocol: {protocol}")
+        counter = -1
+        if self._protocol:
+            counter = self._protocol._counter
         self._protocol = cls()  # type: ignore
+        self._protocol._counter = counter
 
     def _set_protocol_from_msg(
         self,
         full_msg: bytes,
         fallback_protocol: str,
     ) -> None:
-        self._model_num = full_msg[1]
+        if len(full_msg) == 20 and full_msg.startswith(b'\xea'):
+            self._model_num = full_msg[4]
+            version_num = full_msg[5]
+        else:
+            self._model_num = full_msg[1]
+            version_num = full_msg[10] if len(full_msg) > 10 else 1
         self._model_data = get_model(self._model_num, fallback_protocol)
-        version_num = full_msg[10] if len(full_msg) > 10 else 1
         self.setProtocol(self._model_data.protocol_for_version_num(version_num))
 
     def _generate_preset_pattern(
@@ -1257,6 +1297,9 @@ class LEDENETDevice:
         elif protocol in CHRISTMAS_EFFECTS_PROTOCOLS:
             if pattern not in CHRISTMAS_ADDRESSABLE_EFFECT_ID_NAME:
                 raise ValueError("Pattern must be between 1 and 100")
+        elif protocol in DIMMABLE4_EFFECTS_PROTOCOLS:
+            if pattern not in DIMMABLE4_ADDRESSABLE_EFFECT_ID_NAME:
+                raise ValueError("Pattern must be between 1 and 100")
         else:
             PresetPattern.valid_or_raise(pattern)
         if not (1 <= brightness <= 100):
@@ -1264,6 +1307,17 @@ class LEDENETDevice:
         self._last_effect_brightness = brightness
         assert self._protocol is not None
         return self._protocol.construct_preset_pattern(pattern, speed, brightness)
+
+    def _generate_candle_pattern(
+        self, amplitude: int, speed: int, brightness: int
+    ) -> bytearray:
+        """Generate the candle pattern protocol bytes."""
+        protocol = self.protocol
+        if protocol in DIMMABLE4_EFFECTS_PROTOCOLS:
+            if amplitude not in range(1, 4):
+                raise ValueError("Amplitude must be between 1 and 3")
+        assert self._protocol is not None
+        return self._protocol.construct_candle_pattern(amplitude, speed, brightness)
 
     def _generate_custom_patterm(
         self, rgb_list: List[Tuple[int, int, int]], speed: int, transition_type: str
@@ -1291,6 +1345,8 @@ class LEDENETDevice:
             return ADDRESSABLE_EFFECT_NAME_ID[effect]
         if protocol in OLD_EFFECTS_PROTOCOLS:
             return ORIGINAL_ADDRESSABLE_EFFECT_NAME_ID[effect]
+        if protocol in DIMMABLE4_EFFECTS_PROTOCOLS:
+            return DIMMABLE4_ADDRESSABLE_EFFECT_NAME_ID[effect]
         return PresetPattern.str_to_val(effect)
 
     @property

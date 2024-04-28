@@ -89,6 +89,7 @@ PROTOCOL_LEDENET_ADDRESSABLE_A3 = "LEDENET_ADDRESSABLE_A3"
 PROTOCOL_LEDENET_CCT = "LEDENET_CCT"
 PROTOCOL_LEDENET_CCT_WRAPPED = "LEDENET_CCT_WRAPPED"
 PROTOCOL_LEDENET_ADDRESSABLE_CHRISTMAS = "LEDENET_CHRISTMAS"
+PROTOCOL_LEDENET_DIMMABLE4 = "LEDENET_DIMMABLE4"
 
 TRANSITION_BYTES = {
     TRANSITION_JUMP: 0x3B,
@@ -170,7 +171,7 @@ MSG_LENGTHS = {
 }
 
 OUTER_MESSAGE_WRAPPER_FIRST_BYTES = [OUTER_MESSAGE_FIRST_BYTE, 0xB1, 0xB2, 0xB3, 0x00]
-OUTER_MESSAGE_WRAPPER = [*OUTER_MESSAGE_WRAPPER_FIRST_BYTES, 0x01, 0x01]
+OUTER_MESSAGE_WRAPPER = [*OUTER_MESSAGE_WRAPPER_FIRST_BYTES, 0x01, 0x02]
 OUTER_MESSAGE_WRAPPER_START_LEN = 10
 CHECKSUM_LEN = 1
 
@@ -683,6 +684,7 @@ class ProtocolBase:
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request."""
 
@@ -868,6 +870,7 @@ class ProtocolLEDENETOriginal(ProtocolBase):
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request."""
         # sample message for original LEDENET protocol (w/o checksum at end)
@@ -910,6 +913,7 @@ class ProtocolLEDENETOriginalRGBW(ProtocolLEDENETOriginal):
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request."""
         # sample message for original LEDENET RGBW protocol (w/o checksum at end)
@@ -945,6 +949,7 @@ class ProtocolLEDENETOriginalCCT(ProtocolLEDENETOriginal):
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request."""
         # sample message for original LEDENET protocol (w/o checksum at end)
@@ -1025,6 +1030,7 @@ class ProtocolLEDENET8Byte(ProtocolBase):
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request."""
         # sample message for 8-byte protocols (w/ checksum at end)
@@ -1300,6 +1306,7 @@ class ProtocolLEDENET9Byte(ProtocolLEDENET8Byte):
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request."""
         # sample message for 9-byte LEDENET protocol (w/ checksum at end)
@@ -1577,6 +1584,7 @@ class ProtocolLEDENETAddressableA2(ProtocolLEDENETAddressableBase):
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request.
 
@@ -1983,6 +1991,7 @@ class ProtocolLEDENETAddressableA3(ProtocolLEDENETAddressableA2):
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request.
 
@@ -2028,7 +2037,7 @@ class ProtocolLEDENETAddressableA3(ProtocolLEDENETAddressableA2):
         return [
             self.construct_wrapped_message(msg, inner_pre_constructed=True)
             for msg in super().construct_levels_change(
-                persist, red, green, blue, warm_white, cool_white, write_mode
+                persist, red, green, blue, warm_white, cool_white, write_mode, fade_time
             )
         ]
 
@@ -2181,6 +2190,7 @@ class ProtocolLEDENETCCT(ProtocolLEDENET9Byte):
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request.
 
@@ -2252,6 +2262,7 @@ class ProtocolLEDENETCCTWrapped(ProtocolLEDENETCCT):
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request.
 
@@ -2262,7 +2273,7 @@ class ProtocolLEDENETCCTWrapped(ProtocolLEDENETCCT):
         return [
             self.construct_wrapped_message(
                 super().construct_levels_change(
-                    persist, red, green, blue, warm_white, cool_white, write_mode
+                    persist, red, green, blue, warm_white, cool_white, write_mode, fade_time
                 )[0],
                 inner_pre_constructed=True,
             )
@@ -2344,6 +2355,7 @@ class ProtocolLEDENETAddressableChristmas(ProtocolLEDENETAddressableBase):
         warm_white: Optional[int],
         cool_white: Optional[int],
         write_mode: LevelWriteMode,
+        fade_time: Optional[int]
     ) -> List[bytearray]:
         """The bytes to send for a level change request.
 
@@ -2476,3 +2488,158 @@ class ProtocolLEDENETAddressableChristmas(ProtocolLEDENETAddressableBase):
             ic_type_num=None,
             operating_mode=COLOR_MODE_RGB,
         )
+
+
+class ProtocolLEDENETDimmable4(ProtocolBase):
+    def __init__(self):
+        super().__init__()
+        self.last_candle_amplitude = 1
+
+    @property
+    def dimmable_effects(self) -> bool:
+        return True
+
+    def is_valid_power_state_response(self, msg: bytes) -> bool:
+        return False
+
+    def construct_state_change(self, turn_on: int) -> bytearray:
+        return self.construct_wrapped_message(
+            bytearray(
+                [
+                    0x71,
+                    self.on_byte if turn_on else self.off_byte,
+                    0x94 + (0 if turn_on else 1),
+                ]
+            ),
+            inner_pre_constructed=True
+        )
+
+    def construct_music_mode(self, sensitivity: int, brightness: int, mode: Optional[int], effect: Optional[int],
+                             foreground_color: Optional[Tuple[int, int, int]] = None,
+                             background_color: Optional[Tuple[int, int, int]] = None) -> List[bytearray]:
+        raise NotImplemented()
+
+    def construct_levels_change(self, persist: int, red: Optional[int], green: Optional[int], blue: Optional[int],
+                                warm_white: Optional[int], cool_white: Optional[int], write_mode: LevelWriteMode,
+                                fade_time: Optional[int]) -> List[bytearray]:
+        return [
+            self.construct_wrapped_message(
+                bytearray(
+                    [
+                        0xe0,
+                        0x01,  # 0x01
+                        0x00,
+                        0xb1,  # 0xb1
+                        0x00,
+                        0x00,
+                        0x00,
+                        0x64,  # 0x64
+                        0 if not red else utils.byteToPercent(red),
+                        0 if not green else utils.byteToPercent(green),
+                        0 if not blue else utils.byteToPercent(blue),
+                        0x14 if not fade_time else fade_time,  # 0x14 (fade time)
+                        0x00,
+                        0x00,
+                    ]
+                ),
+                inner_pre_constructed=True
+            )
+        ]
+
+    def construct_preset_pattern(self, pattern: int, speed: int, brightness: int) -> bytearray:
+        if pattern in range(51, 54):
+            return self.construct_candle_pattern(pattern - 50, speed, brightness)
+        return self.construct_wrapped_message(
+            bytearray(
+                [
+                    0xe0,
+                    0x02,
+                    0x01,
+                    pattern,
+                    speed,
+                    brightness,
+                ]
+            ),
+            inner_pre_constructed=True
+        )
+
+    def construct_candle_pattern(
+        self, amplitude: int, speed: int, brightness: int
+    ) -> bytearray:
+        self.last_candle_amplitude = amplitude
+        return self.construct_wrapped_message(
+            bytearray(
+                [
+                    0xe0,
+                    0x03,
+                    0x01,
+                    0xb1,
+                    0x64,
+                    0x64,
+                    0x0,
+                    speed,
+                    brightness,
+                    amplitude
+                ]
+            ),
+            inner_pre_constructed = True
+        )
+
+    @property
+    def name(self) -> str:
+        return PROTOCOL_LEDENET_DIMMABLE4
+
+    @property
+    def state_response_length(self) -> int:
+        return 31
+
+    def construct_message(self, raw_bytes: bytearray) -> bytearray:
+        """Calculate checksum of byte array and add to end."""
+        csum = sum(raw_bytes) & 0xFF
+        raw_bytes.append(csum)
+        return raw_bytes
+
+    def named_raw_state(self, raw_state: bytes) -> Union[LEDENETOriginalRawState, LEDENETRawState]:
+        preset_pattern = raw_state[7]  # candle=0x5F, static=0x61, built-in=0x70
+        mode = raw_state[8]  # 0x25-0x2C
+
+        # Treat candle mode as preset extensions
+        if preset_pattern == 0x5F:
+            preset_pattern = 0x70
+            mode = self.last_candle_amplitude + 50  # amplitude not queriable from device
+
+        return LEDENETRawState(
+            head=0,
+            model_num=raw_state[4],
+            power_state=raw_state[6],
+            preset_pattern=preset_pattern,
+            mode=mode,
+            speed=raw_state[9],
+            red=utils.percentToByte(raw_state[15]),
+            green=utils.percentToByte(raw_state[16]),
+            blue=utils.percentToByte(raw_state[17]),
+            warm_white=utils.percentToByte(raw_state[18]),
+            version_number=0,
+            cool_white=utils.percentToByte(raw_state[19]),
+            color_mode=0,
+            check_sum=0,
+        )
+
+    def is_valid_remote_config_response(self, msg: bytes) -> bool:
+        return False
+
+    def construct_state_query(self) -> bytearray:
+        return self.construct_wrapped_message(
+            bytearray(
+                [
+                    0xea,
+                    0x81,
+                    0x8a,
+                    0x8b,
+                ]
+            ),
+            inner_pre_constructed=True
+        )
+
+    def is_valid_state_response(self, raw_state: bytes) -> bool:
+        return len(raw_state) == 20 and raw_state[0] == 0xea

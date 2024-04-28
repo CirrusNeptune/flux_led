@@ -48,6 +48,7 @@ from .protocol import (
     PROTOCOL_LEDENET_ORIGINAL,
     PROTOCOL_LEDENET_ORIGINAL_CCT,
     PROTOCOL_LEDENET_SOCKET,
+    PROTOCOL_LEDENET_DIMMABLE4,
     RGB_NUM_TO_WIRING,
     RGB_WIRING_TO_NUM,
     RGBW_MODE_TO_NUM,
@@ -1050,6 +1051,7 @@ MODELS = [
         description="Controller Dimmable",
         always_writes_white_and_colors=False,  # Formerly rgbwprotocol
         protocols=[
+            MinVersionProtocol(4, PROTOCOL_LEDENET_DIMMABLE4),
             MinVersionProtocol(2, PROTOCOL_LEDENET_8BYTE_AUTO_ON),
             MinVersionProtocol(0, PROTOCOL_LEDENET_8BYTE),
         ],

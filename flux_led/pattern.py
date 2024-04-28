@@ -614,6 +614,25 @@ CHRISTMAS_ADDRESSABLE_EFFECT_NAME_ID = {
 }
 
 
+DIMMABLE4_ADDRESSABLE_EFFECT_ID_NAME = {
+    37: "Breathe",
+    38: "Step Change",
+    39: "Rhythm Change",
+    #40: "Leisure",
+    #41: "Night Light",
+    #42: "Good Night",
+    #43: "Read",
+    #44: "Work",
+    51: "Candle Low",
+    52: "Candle Medium",
+    53: "Candle High",
+}
+
+DIMMABLE4_ADDRESSABLE_EFFECT_NAME_ID = {
+    v: k for k, v in DIMMABLE4_ADDRESSABLE_EFFECT_ID_NAME.items()
+}
+
+
 class PresetPattern:
     _instance = None
     warm_flash = EFFECT_MAP_LEGACY_CCT[EFFECT_WARM_FLASH]

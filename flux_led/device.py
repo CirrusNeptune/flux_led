@@ -103,14 +103,14 @@ class WifiLedBulb(LEDENETDevice):
             self.close()
 
     def setWarmWhite(
-        self, level: int, persist: bool = True, retry: int = DEFAULT_RETRIES
+        self, level: int, persist: bool = True, retry: int = DEFAULT_RETRIES, fade_time=0x14
     ) -> None:
-        self.set_levels(w=utils.percentToByte(level), persist=persist, retry=retry)
+        self.set_levels(w=utils.percentToByte(level), persist=persist, retry=retry, fade_time=fade_time)
 
     def setWarmWhite255(
-        self, level: int, persist: bool = True, retry: int = DEFAULT_RETRIES
+        self, level: int, persist: bool = True, retry: int = DEFAULT_RETRIES, fade_time=0x14
     ) -> None:
-        self.set_levels(w=level, persist=persist, retry=retry)
+        self.set_levels(w=level, persist=persist, retry=retry, fade_time=fade_time)
 
     def setColdWhite(
         self, level: int, persist: bool = True, retry: int = DEFAULT_RETRIES
@@ -170,6 +170,7 @@ class WifiLedBulb(LEDENETDevice):
         w2: Optional[int] = None,
         persist: bool = True,
         brightness: Optional[int] = None,
+        fade_time: Optional[int] = None,
         retry: int = DEFAULT_RETRIES,
     ) -> None:
         self._process_levels_change(
@@ -183,6 +184,7 @@ class WifiLedBulb(LEDENETDevice):
                 },
                 persist,
                 brightness,
+                fade_time,
             ),
             retry=retry,
         )
@@ -295,6 +297,18 @@ class WifiLedBulb(LEDENETDevice):
         self._set_transition_complete_time()
         self._send_and_read_with_retry(
             self._generate_preset_pattern(pattern, speed, brightness), 0, retry=retry
+        )
+
+    def setCandlePattern(
+        self,
+        amplitude: int,
+        speed: int,
+        brightness: int = 100,
+        retry: int = DEFAULT_RETRIES,
+    ) -> None:
+        self._set_transition_complete_time()
+        self._send_and_read_with_retry(
+            self._generate_candle_pattern(amplitude, speed, brightness), 0, retry=retry
         )
 
     def set_effect(
