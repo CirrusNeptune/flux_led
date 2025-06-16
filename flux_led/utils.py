@@ -4,9 +4,8 @@ import ast
 import colorsys
 import contextlib
 import datetime
-from collections import namedtuple
-from typing import cast
 from collections.abc import Iterable
+from typing import NamedTuple, cast
 
 import webcolors  # type: ignore[import-untyped]
 
@@ -15,22 +14,18 @@ from .const import MAX_TEMP, MIN_TEMP
 MAX_MIN_TEMP_DIFF = MAX_TEMP - MIN_TEMP
 
 
-WhiteLevels = namedtuple(
-    "WhiteLevels",
-    [
-        "warm_white",
-        "cool_white",
-    ],
-)
+class WhiteLevels(NamedTuple):
+    """White level for a color."""
+
+    warm_white: int
+    cool_white: int
 
 
-TemperatureBrightness = namedtuple(
-    "TemperatureBrightness",
-    [
-        "temperature",
-        "brightness",
-    ],
-)
+class TemperatureBrightness(NamedTuple):
+    """Temperature and brightness for a color."""
+
+    temperature: int
+    brightness: int
 
 
 class utils:
@@ -49,12 +44,12 @@ class utils:
 
         # try to convert from an english name
         with contextlib.suppress(Exception):
-            return cast(tuple[int, int, int], webcolors.name_to_rgb(color))
+            return cast("tuple[int, int, int]", webcolors.name_to_rgb(color))
 
         # try to convert an web hex code
         with contextlib.suppress(Exception):
             return cast(
-                tuple[int, int, int],
+                "tuple[int, int, int]",
                 webcolors.hex_to_rgb(webcolors.normalize_hex(color)),
             )
 
@@ -71,7 +66,7 @@ class utils:
     def color_tuple_to_string(rgb: tuple[int, int, int]) -> str:
         # try to convert to an english name
         with contextlib.suppress(Exception):
-            return cast(str, webcolors.rgb_to_name(rgb))
+            return cast("str", webcolors.rgb_to_name(rgb))
         return str(rgb)
 
     @staticmethod

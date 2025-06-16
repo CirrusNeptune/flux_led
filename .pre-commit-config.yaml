@@ -9,7 +9,7 @@ ci:
 
 repos:
   - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.1.0
+    rev: v4.4.1
     hooks:
       - id: commitizen
         stages: [commit-msg]
@@ -38,13 +38,13 @@ repos:
       - id: pyupgrade
         args: [--py39-plus]
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    rev: v0.11.2
     hooks:
       - id: ruff
         args: [--fix]
       - id: ruff-format
   - repo: https://github.com/cdce8p/python-typing-update
-    rev: v0.7.0
+    rev: v0.7.1
     hooks:
       - id: python-typing-update
         stages: [manual]
@@ -57,3 +57,25 @@ repos:
   #  rev: v2.3.0
   #  hooks:
   #    - id: codespell
+  - repo: https://github.com/pre-commit/mirrors-mypy.git
+    rev: v1.15.0
+    hooks:
+      - id: mypy
+        alias: mypy-py313
+        name: MyPy, for Python 3.13
+        additional_dependencies:
+          - pytest
+          - webcolors
+        args:
+          - --python-version=3.13
+        files: ^(flux_led)/.+\.py$
+      - id: mypy
+        alias: mypy-py39
+        name: MyPy, for Python 3.9
+        additional_dependencies:
+          - async_timeout
+          - pytest
+          - webcolors
+        args:
+          - --python-version=3.9
+        files: ^(flux_led)/.+\.py$

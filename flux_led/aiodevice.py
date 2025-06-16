@@ -117,7 +117,6 @@ class AIOWifiLedBulb(LEDENETDevice):
         except Exception:  # pylint: disable=broad-except
             self._async_stop()
             raise
-        return
 
     async def _async_setup(self) -> None:
         await self._async_determine_protocol()
@@ -343,7 +342,7 @@ class AIOWifiLedBulb(LEDENETDevice):
                 # then no need to poll except for the interval
                 # to make sure the device is still responding
                 return
-            elif self._protocol.power_push_updates:
+            if self._protocol.power_push_updates:
                 # If the device pushes power updates
                 # then no need to poll except for the interval
                 # to make sure the device is still responding
@@ -435,6 +434,7 @@ class AIOWifiLedBulb(LEDENETDevice):
         if effect == EFFECT_RANDOM:
             await self.async_set_random()
             return
+        brightness = min(100, max(0, brightness))
         if effect == EFFECT_MUSIC:
             await self.async_set_music_mode(brightness=brightness)
             return
@@ -745,6 +745,9 @@ class AIOWifiLedBulb(LEDENETDevice):
             self._last_message["state"] = msg
             self._async_process_state_response(msg)
             self._process_state_futures()
+        elif self._protocol.is_valid_extended_state_response(msg):
+            self._last_message["extended_state"] = msg
+            self.process_extended_state_response(msg)
         elif self._protocol.is_valid_power_state_response(msg):
             self._last_message["power_state"] = msg
             self.process_power_state_response(msg)
@@ -800,7 +803,7 @@ class AIOWifiLedBulb(LEDENETDevice):
         try:
             self._updated_callback()
         except Exception as ex:  # pylint: disable=broad-except
-            _LOGGER.error("Error while calling callback: %s", ex)
+            _LOGGER.exception("Error while calling callback: %s", ex)
 
     def process_power_restore_state_response(self, msg: bytes) -> None:
         """Process a power restore state response.

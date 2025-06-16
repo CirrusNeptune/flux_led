@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
-"""This is an example script that can be used to set on and off timers based on the sunrise/sunset times.
+"""
+This is an example script that can be used to set on and off timers based on the sunrise/sunset times.
 
 Specifically, it will set times on an outside porch light
 to turn on at dusk and off at dawn.  It will set the timers for
@@ -60,11 +61,7 @@ def main():
         print(f"Information for {location}/{city.region}\n")
         print(f"Timezone: {timezone}")
 
-        print(
-            "Latitude: {:.02f}; Longitude: {:.02f}\n".format(
-                city.latitude, city.longitude
-            )
-        )
+        print(f"Latitude: {city.latitude:.02f}; Longitude: {city.longitude:.02f}\n")
 
         print("Dawn:    {}".format(sun["dawn"]))
         print("Sunrise: {}".format(sun["sunrise"]))

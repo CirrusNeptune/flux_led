@@ -6,10 +6,8 @@ setup_requirements = [
 
 test_requirements = [
     "pytest-asyncio",
-    "black>=19.10b0",
+    "ruff==0.11.2",
     "codecov>=2.1.4",
-    "flake8>=3.8.3",
-    "flake8-debugger>=3.2.1",
     "pytest>=5.4.3",
     "pytest-cov>=2.9.0",
     "pytest-raises>=0.11",
@@ -51,7 +49,7 @@ extra_requirements = {
 setup(
     name="flux_led",
     packages=["flux_led"],
-    version="1.1.3",
+    version="1.2.0",
     description="A Python library to communicate with the flux_led smart bulbs",
     author="Daniel Hjelseth Høyer",
     author_email="mail@dahoiv.net",

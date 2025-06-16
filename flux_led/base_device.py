@@ -4,10 +4,10 @@ import colorsys
 import logging
 import random
 import time
+from collections.abc import Iterable
 from dataclasses import asdict, is_dataclass
 from enum import Enum
-from typing import Any, Union
-from collections.abc import Iterable
+from typing import TYPE_CHECKING, Any, Union
 
 from .const import (  # imported for back compat, remove once Home Assistant no longer uses
     ADDRESSABLE_STATE_CHANGE_LATENCY,
@@ -51,9 +51,6 @@ from .const import (  # imported for back compat, remove once Home Assistant no 
     STATE_RED,
     STATE_WARM_WHITE,
     STATIC_MODES,
-    WRITE_ALL_COLORS,
-    WRITE_ALL_WHITES,
-    LevelWriteMode,
     WhiteChannelType,
 )
 from .models_db import (
@@ -90,6 +87,7 @@ from .protocol import (
     PROTOCOL_LEDENET_9BYTE,
     PROTOCOL_LEDENET_9BYTE_AUTO_ON,
     PROTOCOL_LEDENET_9BYTE_DIMMABLE_EFFECTS,
+    PROTOCOL_LEDENET_25BYTE,
     PROTOCOL_LEDENET_ADDRESSABLE_A1,
     PROTOCOL_LEDENET_ADDRESSABLE_A2,
     PROTOCOL_LEDENET_ADDRESSABLE_A3,
@@ -110,6 +108,7 @@ from .protocol import (
     ProtocolLEDENET9Byte,
     ProtocolLEDENET9ByteAutoOn,
     ProtocolLEDENET9ByteDimmableEffects,
+    ProtocolLEDENET25Byte,
     ProtocolLEDENETAddressableA1,
     ProtocolLEDENETAddressableA2,
     ProtocolLEDENETAddressableA3,
@@ -151,6 +150,7 @@ PROTOCOL_TYPES = Union[
     ProtocolLEDENET9Byte,
     ProtocolLEDENET9ByteAutoOn,
     ProtocolLEDENET9ByteDimmableEffects,
+    ProtocolLEDENET25Byte,
     ProtocolLEDENETAddressableA1,
     ProtocolLEDENETAddressableA2,
     ProtocolLEDENETAddressableA3,
@@ -196,6 +196,7 @@ PROTOCOL_NAME_TO_CLS = {
     PROTOCOL_LEDENET_9BYTE: ProtocolLEDENET9Byte,
     PROTOCOL_LEDENET_9BYTE_AUTO_ON: ProtocolLEDENET9ByteAutoOn,
     PROTOCOL_LEDENET_9BYTE_DIMMABLE_EFFECTS: ProtocolLEDENET9ByteDimmableEffects,
+    PROTOCOL_LEDENET_25BYTE: ProtocolLEDENET25Byte,
     PROTOCOL_LEDENET_ADDRESSABLE_A3: ProtocolLEDENETAddressableA3,
     PROTOCOL_LEDENET_ADDRESSABLE_A2: ProtocolLEDENETAddressableA2,
     PROTOCOL_LEDENET_ADDRESSABLE_A1: ProtocolLEDENETAddressableA1,
@@ -444,10 +445,8 @@ class LEDENETDevice:
         # we need to distingush between devices that are RGB/CCT
         # and ones that are RGB&CCT
         if (
-            COLOR_MODE_CCT not in color_modes
-            and COLOR_MODE_RGBWW in color_modes
-            or self.rgbw_color_temp_support(color_modes)
-        ):
+            COLOR_MODE_CCT not in color_modes and COLOR_MODE_RGBWW in color_modes
+        ) or self.rgbw_color_temp_support(color_modes):
             return {COLOR_MODE_CCT, *color_modes}
         return color_modes
 
@@ -594,7 +593,7 @@ class LEDENETDevice:
         if color_modes == COLOR_MODES_RGB_W:  # RGB/W split, only one active at a time
             return COLOR_MODE_DIM if self.white_active else COLOR_MODE_RGB
         if color_modes:
-            return list(color_modes)[0]
+            return next(iter(color_modes))
         return None  # Usually a switch or non-light device
 
     @property
@@ -729,7 +728,7 @@ class LEDENETDevice:
             return 255
         if color_mode == COLOR_MODE_DIM:
             return int(raw_state.warm_white)
-        elif color_mode == COLOR_MODE_CCT:
+        if color_mode == COLOR_MODE_CCT:
             _, b = self.getWhiteTemperature()
             return b
 
@@ -810,16 +809,19 @@ class LEDENETDevice:
         _LOGGER.debug("%s: device_config: %s", self.ipaddr, self._device_config)
 
     def process_state_response(self, rx: bytes) -> bool:
+        """Process a state change message."""
         assert self._protocol is not None
-
         if not self._protocol.is_valid_state_response(rx):
             _LOGGER.warning(
-                "%s: Recieved invalid response: %s",
+                "%s: Invalid response: %s",
                 self.ipaddr,
                 utils.raw_state_to_dec(rx),
             )
             return False
+        return self._process_valid_state_response(rx)
 
+    def _process_valid_state_response(self, rx: bytes) -> bool:
+        assert self._protocol is not None
         raw_state: LEDENETOriginalRawState | LEDENETRawState = (
             self._protocol.named_raw_state(rx)
         )
@@ -883,6 +885,12 @@ class LEDENETDevice:
             return False
         _LOGGER.debug("%s: Setting power state to: %s", self.ipaddr, f"0x{msg[2]:02X}")
         self._set_power_state(msg[2])
+        return True
+
+    def process_extended_state_response(self, msg: bytes) -> bool:
+        """Process and extended state response."""
+        assert self._protocol is not None
+        self._process_valid_state_response(self._protocol.extended_state_to_state(msg))
         return True
 
     def _set_raw_state(
@@ -949,7 +957,7 @@ class LEDENETDevice:
 
         self.raw_state = raw_state
 
-    def __str__(self) -> str:  # noqa: C901
+    def __str__(self) -> str:
         assert self.raw_state is not None
         assert self._protocol is not None
 
@@ -976,9 +984,7 @@ class LEDENETDevice:
                 mode_str = f"Warm White: {utils.byteToPercent(rx.warm_white)}%"
             elif color_mode == COLOR_MODE_CCT:
                 cct_value = self.getWhiteTemperature()
-                mode_str = "CCT: {}K Brightness: {}%".format(
-                    cct_value[0], round(cct_value[1] * 100 / 255)
-                )
+                mode_str = f"CCT: {cct_value[0]}K Brightness: {round(cct_value[1] * 100 / 255)}%"
         elif mode == MODE_PRESET:
             mode_str = f"Pattern: {self.effect} (Speed {self.speed}%)"
         elif mode == MODE_CUSTOM:
@@ -1097,7 +1103,7 @@ class LEDENETDevice:
     @property
     def speed(self) -> int:
         assert self.raw_state is not None
-        if self.protocol in ADDRESSABLE_PROTOCOLS or self.protocol == PROTOCOL_LEDENET_DIMMABLE4:
+        if (self._protocol is not None and not self._protocol.speed_is_delay) or self.protocol == PROTOCOL_LEDENET_DIMMABLE4:
             return self.raw_state.speed
         if self.protocol in CHRISTMAS_EFFECTS_PROTOCOLS:
             return utils.delayToSpeed(self.raw_state.green)
@@ -1120,7 +1126,7 @@ class LEDENETDevice:
             }
         )
 
-    def _generate_levels_change(  # noqa: C901
+    def _generate_levels_change(
         self,
         channels: dict[str, int | None],
         persist: bool = True,
@@ -1164,13 +1170,18 @@ class LEDENETDevice:
         else:
             w2_value = int(w2)
 
-        write_mode = LevelWriteMode.ALL
+        # color / white write mode changed in Firmware 11 (25 byte)
+        if TYPE_CHECKING:
+            assert self._protocol is not None, "Protocol should not be None"
+        level_write_mode = self._protocol.level_write_modes
+
+        write_mode = level_write_mode.ALL
         # rgbwprotocol always overwrite both color & whites
         if not self.rgbwprotocol:
             if w is None and w2 is None:
-                write_mode = LevelWriteMode.COLORS
+                write_mode = level_write_mode.COLORS
             elif r is None and g is None and b is None:
-                write_mode = LevelWriteMode.WHITES
+                write_mode = level_write_mode.WHITES
 
         assert self._protocol is not None
         msgs = self._protocol.construct_levels_change(
@@ -1178,11 +1189,11 @@ class LEDENETDevice:
         )
         updates = {}
         multi_mode = self.multi_color_mode
-        if multi_mode or write_mode in WRITE_ALL_COLORS:
+        if multi_mode or write_mode in self._protocol.get_write_all_colors():
             updates.update(
                 {"red": r_value or 0, "green": g_value or 0, "blue": b_value or 0}
             )
-        if multi_mode or write_mode in WRITE_ALL_WHITES:
+        if multi_mode or write_mode in self._protocol.get_write_all_whites():
             updates.update({"warm_white": w_value or 0, "cool_white": w2_value or 0})
         return msgs, updates
 

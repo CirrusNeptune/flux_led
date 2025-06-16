@@ -5,8 +5,8 @@ import contextlib
 import datetime
 import json
 import logging
-import time
 import sys
+import time
 from unittest.mock import MagicMock, call, patch
 
 try:
@@ -16,7 +16,7 @@ except ImportError:
 
 import pytest
 
-from flux_led import aiodevice, aioscanner, DeviceUnavailableException
+from flux_led import DeviceUnavailableException, aiodevice, aioscanner
 from flux_led.aio import AIOWifiLedBulb
 from flux_led.aioprotocol import AIOLEDENETProtocol
 from flux_led.aioscanner import AIOBulbScanner, LEDENETDiscovery
@@ -33,15 +33,18 @@ from flux_led.const import (
     WhiteChannelType,
 )
 from flux_led.protocol import (
-    ProtocolLEDENETCCT,
-    ProtocolLEDENETCCTWrapped,
     PROTOCOL_LEDENET_8BYTE_AUTO_ON,
     PROTOCOL_LEDENET_8BYTE_DIMMABLE_EFFECTS,
     PROTOCOL_LEDENET_9BYTE,
+    PROTOCOL_LEDENET_25BYTE,
     PROTOCOL_LEDENET_ADDRESSABLE_CHRISTMAS,
     PROTOCOL_LEDENET_ORIGINAL,
+    LEDENETRawState,
     PowerRestoreState,
     PowerRestoreStates,
+    ProtocolLEDENET25Byte,
+    ProtocolLEDENETCCT,
+    ProtocolLEDENETCCTWrapped,
     RemoteConfig,
 )
 from flux_led.scanner import (
@@ -933,6 +936,15 @@ async def test_async_set_effect(mock_aio_protocol, caplog: pytest.LogCaptureFixt
     assert transport.mock_calls[0][0] == "write"
     counter_byte = transport.mock_calls[0][1][0][7]
     assert counter_byte == 0
+
+    transport.reset_mock()
+    # Verify brightness clamped
+    await light.async_set_effect("RBM 1", 50, brightness=500)
+    assert transport.mock_calls[0][0] == "write"
+    assert (
+        transport.mock_calls[0][1][0]
+        == b"\xb0\xb1\xb2\xb3\x00\x01\x01\x01\x00\x05B\x012d\xd9\x80"
+    )
 
 
 @pytest.mark.asyncio
@@ -3285,7 +3297,7 @@ async def test_async_config_remotes_no_response(
     mock_aio_protocol, caplog: pytest.LogCaptureFixture
 ):
     """Test device supports remote config but does not respond."""
-    light = AIOWifiLedBulb("192.168.1.166", timeout=0.0001)
+    light = AIOWifiLedBulb("192.168.1.166", timeout=0.001)
     light.discovery = FLUX_DISCOVERY_24G_REMOTE
 
     def _updated_callback(*args, **kwargs):
@@ -3801,3 +3813,493 @@ async def test_not_armacost():
     light = AIOWifiLedBulb("192.168.213.252")
     light.discovery = discovery
     assert light.port == 5577
+
+
+def test_extended_state_to_state_full_cool_white():
+    proto = ProtocolLEDENET25Byte()
+
+    # Simulated extended state response payload (starts with EA 81)
+    raw_state = bytes(
+        (
+            0xEA,
+            0x81,
+            0x01,
+            0x00,
+            0x35,
+            0x0A,
+            0x23,
+            0x61,
+            0x00,
+            0x0A,
+            0x0F,
+            0x00,
+            0x00,
+            0x00,
+            0x64,
+            0x64,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0xF5,
+        )
+    )
+
+    assert proto.is_valid_extended_state_response(raw_state) is True
+
+    state = proto.extended_state_to_state(raw_state)
+    assert len(state) == 14
+
+    raw_state = LEDENETRawState(*state)
+
+    # Validate fields
+    assert raw_state.power_state == 0x23  # power
+    assert raw_state.preset_pattern == 0x61  # preset
+    assert raw_state.red == 0  # red
+    assert raw_state.green == 0  # green
+    assert raw_state.blue == 0  # blue
+    assert raw_state.warm_white == 0  # warm white
+    assert raw_state.cool_white == 255  # cool white
+
+
+def test_extended_state_to_state_full_warm_white():
+    proto = ProtocolLEDENET25Byte()
+
+    # Simulated extended state response payload (starts with EA 81)
+    raw_state = bytes(
+        (
+            0xEA,
+            0x81,
+            0x01,
+            0x00,
+            0x35,
+            0x0A,
+            0x23,
+            0x61,
+            0x00,
+            0x0A,
+            0x0F,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x64,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x94,
+        )
+    )
+
+    assert proto.is_valid_extended_state_response(raw_state) is True
+
+    state = proto.extended_state_to_state(raw_state)
+    assert len(state) == 14
+
+    raw_state = LEDENETRawState(*state)
+
+    # Validate fields
+    assert raw_state.power_state == 0x23  # power
+    assert raw_state.preset_pattern == 0x61  # preset
+    assert raw_state.red == 0  # red
+    assert raw_state.green == 0  # green
+    assert raw_state.blue == 0  # blue
+    assert raw_state.warm_white == 255  # warm white
+    assert raw_state.cool_white == 0  # cool white
+
+
+def test_extended_state_to_state_full_red():
+    proto = ProtocolLEDENET25Byte()
+
+    # Simulated extended state response payload (starts with EA 81)
+    raw_state = bytes(
+        (
+            0xEA,
+            0x81,
+            0x01,
+            0x00,
+            0x35,
+            0x0A,
+            0x23,
+            0x61,
+            0x00,
+            0x0A,
+            0xF0,
+            0x00,
+            0x64,
+            0x64,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0xF8,
+        )
+    )
+
+    assert proto.is_valid_extended_state_response(raw_state) is True
+
+    state = proto.extended_state_to_state(raw_state)
+    assert len(state) == 14
+
+    raw_state = LEDENETRawState(*state)
+
+    # Validate fields
+    assert raw_state.power_state == 0x23  # power
+    assert raw_state.preset_pattern == 0x61  # preset
+    assert raw_state.red == 255  # red
+    assert raw_state.green == 0  # green
+    assert raw_state.blue == 0  # blue
+    assert raw_state.warm_white == 0  # warm white
+    assert raw_state.cool_white == 0  # cool white
+
+
+def test_extended_state_to_state_full_green():
+    proto = ProtocolLEDENET25Byte()
+
+    # Simulated extended state response payload (starts with EA 81)
+    raw_state = bytes(
+        (
+            0xEA,
+            0x81,
+            0x01,
+            0x00,
+            0x35,
+            0x0A,
+            0x23,
+            0x61,
+            0x00,
+            0x0A,
+            0xF0,
+            0x3C,
+            0x64,
+            0x64,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x1A,
+        )
+    )
+
+    assert proto.is_valid_extended_state_response(raw_state) is True
+
+    state = proto.extended_state_to_state(raw_state)
+    assert len(state) == 14
+
+    raw_state = LEDENETRawState(*state)
+
+    # Validate fields
+    assert raw_state.power_state == 0x23  # power
+    assert raw_state.preset_pattern == 0x61  # preset
+    assert raw_state.red == 0  # red
+    assert raw_state.green == 255  # green
+    assert raw_state.blue == 0  # blue
+    assert raw_state.warm_white == 0  # warm white
+    assert raw_state.cool_white == 0  # cool white
+
+
+def test_extended_state_to_state_full_blue():
+    proto = ProtocolLEDENET25Byte()
+
+    # Simulated extended state response payload (starts with EA 81)
+    raw_state = bytes(
+        (
+            0xEA,
+            0x81,
+            0x01,
+            0x00,
+            0x35,
+            0x0A,
+            0x23,
+            0x61,
+            0x00,
+            0x0A,
+            0xF0,
+            0x78,
+            0x64,
+            0x64,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x57,
+        )
+    )
+
+    assert proto.is_valid_extended_state_response(raw_state) is True
+
+    state = proto.extended_state_to_state(raw_state)
+    assert len(state) == 14
+
+    raw_state = LEDENETRawState(*state)
+
+    # Validate fields
+    assert raw_state.power_state == 0x23  # power
+    assert raw_state.preset_pattern == 0x61  # preset
+    assert raw_state.red == 0  # red
+    assert raw_state.green == 0  # green
+    assert raw_state.blue == 255  # blue
+    assert raw_state.warm_white == 0  # warm white
+    assert raw_state.cool_white == 0  # cool white
+
+
+def test_extended_state_to_state_full_yellow():
+    proto = ProtocolLEDENET25Byte()
+
+    # Simulated extended state response payload (starts with EA 81)
+    raw_state = bytes(
+        (
+            0xEA,
+            0x81,
+            0x01,
+            0x00,
+            0x35,
+            0x0A,
+            0x23,
+            0x61,
+            0x00,
+            0x0A,
+            0xF0,
+            0x1E,
+            0x64,
+            0x64,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x73,
+        )
+    )
+
+    assert proto.is_valid_extended_state_response(raw_state) is True
+
+    state = proto.extended_state_to_state(raw_state)
+    assert len(state) == 14
+
+    raw_state = LEDENETRawState(*state)
+
+    # Validate fields
+    assert raw_state.power_state == 0x23  # power
+    assert raw_state.preset_pattern == 0x61  # preset
+    assert raw_state.red == 255  # red
+    assert raw_state.green == 255  # green
+    assert raw_state.blue == 0  # blue
+    assert raw_state.warm_white == 0  # warm white
+    assert raw_state.cool_white == 0  # cool white
+
+
+def test_extended_state_to_state_full_purple():
+    proto = ProtocolLEDENET25Byte()
+
+    # Simulated extended state response payload (starts with EA 81)
+    raw_state = bytes(
+        (
+            0xEA,
+            0x81,
+            0x01,
+            0x00,
+            0x35,
+            0x0A,
+            0x23,
+            0x61,
+            0x00,
+            0x0A,
+            0xF0,
+            0x96,
+            0x64,
+            0x64,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x7A,
+        )
+    )
+
+    assert proto.is_valid_extended_state_response(raw_state) is True
+
+    state = proto.extended_state_to_state(raw_state)
+    assert len(state) == 14
+
+    raw_state = LEDENETRawState(*state)
+
+    # Validate fields
+    assert raw_state.power_state == 0x23  # power
+    assert raw_state.preset_pattern == 0x61  # preset
+    assert raw_state.red == 255  # red
+    assert raw_state.green == 0  # green
+    assert raw_state.blue == 255  # blue
+    assert raw_state.warm_white == 0  # warm white
+    assert raw_state.cool_white == 0  # cool white
+
+
+def test_extended_state_to_state_full_speed_effect():
+    proto = ProtocolLEDENET25Byte()
+
+    # Simulated extended state response payload (starts with EA 81)
+    raw_state = bytes(
+        (
+            0xEA,
+            0x81,
+            0x01,
+            0x00,
+            0x35,
+            0x0A,
+            0x23,
+            0x25,
+            0x00,
+            0x64,
+            0xF0,
+            0x0B,
+            0xE4,
+            0x64,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x56,
+        )
+    )
+
+    assert proto.is_valid_extended_state_response(raw_state) is True
+
+    state = proto.extended_state_to_state(raw_state)
+    assert len(state) == 14
+
+    raw_state = LEDENETRawState(*state)
+
+    # Validate fields
+    assert raw_state.power_state == 0x23  # power
+    assert raw_state.preset_pattern == 0x25  # preset
+    assert raw_state.red == 255  # red
+    assert raw_state.green == 0  # green
+    assert raw_state.blue == 0  # blue
+    assert raw_state.warm_white == 0  # warm white
+    assert raw_state.cool_white == 0  # cool white
+
+
+def test_extended_state_too_short():
+    proto = ProtocolLEDENET25Byte()
+    assert proto.extended_state_to_state(b"\xea\x81") == b""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "label,hue_byte,sat_byte,val_byte,expected_rgb",
+    [
+        ("red", 0x00, 100, 100, (255, 0, 0)),
+        ("yellow", 0x1E, 100, 100, (255, 255, 0)),
+        ("green", 0x3C, 100, 100, (0, 255, 0)),
+        ("blue", 0x78, 100, 100, (0, 0, 255)),
+    ],
+)
+async def test_extended_state_color_parsing(
+    label, hue_byte, sat_byte, val_byte, expected_rgb
+):
+    proto = ProtocolLEDENET25Byte()
+
+    print(
+        f"values → hue: {hue_byte} ({type(hue_byte)}), sat: {sat_byte} ({type(sat_byte)}), val: {val_byte} ({type(val_byte)})"
+    )
+
+    raw_state = bytes(
+        [
+            0xEA,
+            0x81,
+            0x01,
+            0x00,
+            0x35,
+            0x0A,
+            0x23,
+            0x61,
+            0x00,
+            0x0A,
+            0xF0,
+            hue_byte,
+            sat_byte,
+            val_byte,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x7A,
+        ]
+    )
+
+    result = proto.extended_state_to_state(raw_state)
+    rgb = tuple(result[6:9])
+    assert all(abs(a - b) <= 1 for a, b in zip(rgb, expected_rgb)), (
+        f"{label} RGB mismatch: got {rgb}, expected {expected_rgb}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_setup_0x35_with_version_num_10(
+    mock_aio_protocol, caplog: pytest.LogCaptureFixture
+):
+    """Test we use the right protocol for 0x35 with v10."""
+    light = AIOWifiLedBulb("192.168.1.166")
+
+    def _updated_callback(*args, **kwargs):
+        pass
+
+    task = asyncio.create_task(light.async_setup(_updated_callback))
+    transport, protocol = await mock_aio_protocol()
+    light._aio_protocol.data_received(bytes.fromhex("81352361306400ffff000a00f0c6"))
+    await task
+    assert light.model_num == 0x35
+    assert light.protocol == PROTOCOL_LEDENET_25BYTE
+    assert light.white_active is False
+    light._aio_protocol.data_received(
+        bytes(
+            (
+                0xB0,
+                0xB1,
+                0xB2,
+                0xB3,
+                0x00,
+                0x02,
+                0x02,
+                0x17,
+                0x00,
+                0x14,
+                0xEA,
+                0x81,
+                0x01,
+                0x00,
+                0x35,
+                0x0A,
+                0x23,
+                0x61,
+                0x24,
+                0x64,
+                0x0F,
+                0x00,
+                0x00,
+                0x00,
+                0x64,
+                0x64,
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+                0x83,
+            )
+        )
+    )
+    assert light.white_active is True

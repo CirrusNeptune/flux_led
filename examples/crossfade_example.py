@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
-"""Example to cycle a bulb between colors in a list, with a smooth fade between.
+"""
+Example to cycle a bulb between colors in a list, with a smooth fade between.
 
 Assumes the bulb is already on.
 
@@ -8,10 +9,10 @@ The python file with the Flux LED wrapper classes should live in
 the same folder as this script
 """
 
-from itertools import cycle
 import os
 import sys
 import time
+from itertools import cycle
 
 from flux_led import BulbScanner, WifiLedBulb
 
